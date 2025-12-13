@@ -3,7 +3,9 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
     import logging
     import streamlit as st
     from pdf2image import convert_from_bytes
-    from utils.config import POPPLER_PATH, ocr
+    from utils.config import POPPLER_PATH
+    from utils.ocr_loader import get_ocr
+
 
     uploaded_file.seek(0)
 
@@ -29,6 +31,7 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
     extracted_text = []
     progress = st.progress(0)
     status = st.empty()
+    ocr = get_ocr()
 
     for i, image in enumerate(images, 1):
         try:
