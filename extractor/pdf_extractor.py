@@ -3,10 +3,8 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
     import logging
     import streamlit as st
     from pdf2image import convert_from_bytes
-    from utils.config import POPPLER_PATH
-    from utils.ocr_loader import get_ocr
-    
-    ocr = get_ocr()
+    from utils.config import POPPLER_PATH, ocr
+
     uploaded_file.seek(0)
 
     try:
@@ -32,39 +30,29 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
     progress = st.progress(0)
     status = st.empty()
 
-for i, image in enumerate(images, 1):
-    temp_path = f"temp_page_{i}.jpg"
-    try:
-        image.save(temp_path, "JPEG")
+    for i, image in enumerate(images, 1):
+        try:
+            temp_path = f"temp_page_{i}.jpg"
+            image.save(temp_path, "JPEG")
 
-        result = ocr.ocr(temp_path, cls=True) or []
+            result = ocr.ocr(temp_path, cls=True)
+            if result:
+                for res in result:
+                    for line in res:
+                        if line and isinstance(line, list) and len(line) > 1:
+                            text = line[1][0]
+                            if isinstance(text, str):
+                                extracted_text.append(text)
+        except Exception as e:
+            logging.error(f"OCR failed on page {i}: {e}")
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
-        # PaddleOCR sometimes returns [None] or entries that are None
-        for res in result:
-            if not res:   # skips None / empty page results safely
-                continue
+        percent = int((i / len(images)) * 100)
+        progress.progress(percent)
+        status.text(f"🧠 OCR in progress: Page {i}/{len(images)} ({percent}%)")
 
-            for line in res:
-                # line is typically: [box_points, (text, score)]
-                if not line or not isinstance(line, list) or len(line) < 2:
-                    continue
+    status.text("✅ OCR complete!")
 
-                text_info = line[1]
-                if isinstance(text_info, (list, tuple)) and len(text_info) > 0:
-                    text = text_info[0]
-                    if isinstance(text, str) and text.strip():
-                        extracted_text.append(text)
-
-    except Exception as e:
-        logging.error(f"OCR failed on page {i}: {e}")
-
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-    percent = int((i / len(images)) * 100)
-    progress.progress(percent)
-    status.text(f"🧠 OCR in progress: Page {i}/{len(images)} ({percent}%)")
-
-status.text("✅ OCR complete!")
-return " ".join(extracted_text) if extracted_text else "[NO TEXT FOUND]"
+    return " ".join(extracted_text) if extracted_text else "[NO TEXT FOUND]"
