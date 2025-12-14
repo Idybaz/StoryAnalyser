@@ -57,10 +57,10 @@ narwhals==1.32.0
 networkx==3.3
 nltk==3.9.1
 numpy==1.26.4
-opencv-python-headless>=4.11.0.80
+opencv-python-headless>=4.9.0.80
 opt-einsum==3.3.0
 packaging==24.2
-paddleocr==2.10.0 --no-deps
+paddleocr==2.10.0
 paddlepaddle==3.0.0
 pandas==2.2.3
 pdf2image==1.17.0
@@ -113,6 +113,9 @@ thinc==8.3.4
 threadpoolctl==3.6.0
 tifffile==2025.3.13
 toml==0.10.2
+torch==2.2.0+cpu
+torchaudio==2.2.0+cpu
+torchvision==0.17.0+cpu
 tornado==6.4.2
 tqdm==4.67.1
 typer==0.15.2
