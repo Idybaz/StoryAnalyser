@@ -3,7 +3,9 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
     import logging
     import streamlit as st
     from pdf2image import convert_from_bytes
-    from utils.config import POPPLER_PATH, ocr
+    from utils.config import POPPLER_PATH, get_ocr
+    ocr = get_ocr()
+
 
     uploaded_file.seek(0)
 
