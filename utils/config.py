@@ -1,4 +1,5 @@
 import platform
+import streamlit as st
 from paddleocr import PaddleOCR
 
 # Poppler path: Windows vs Streamlit Cloud/Linux
