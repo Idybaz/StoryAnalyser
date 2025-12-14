@@ -1,104 +1,147 @@
-import numpy as np
 import re
-from collections import Counter
+import numpy as np
 import contractions
+from collections import Counter
 from nltk import pos_tag, word_tokenize
+from scipy.stats import hypergeom
+
 from utils.cleaner_base import preclean_text, lemmatizer, get_wordnet_pos, STOPWORDS
 
-def clean_for_lexical_diversity(text):
-    """Clean text for lexical richness analysis (TTR, MTLD, etc.)."""
+
+def _tokenize_clean(text: str) -> list[str]:
+    """Return cleaned, lemmatized tokens suitable for lexical diversity metrics."""
     text = preclean_text(text)
     text = contractions.fix(text).lower()
-    text = re.sub(r"[^\w\s']", "", text)
+    text = re.sub(r"[^\w\s']", " ", text)
 
     words = word_tokenize(text)
     pos_tags = pos_tag(words)
 
-    return ' '.join([
-        lemmatizer.lemmatize(word, get_wordnet_pos(tag))
-        for word, tag in pos_tags
-        if word not in STOPWORDS and len(word) > 2
-    ])
+    tokens = []
+    for word, tag in pos_tags:
+        if not word.isalpha():
+            continue
+        if word in STOPWORDS:
+            continue
+        if len(word) <= 2:
+            continue
+        lemma = lemmatizer.lemmatize(word, get_wordnet_pos(tag))
+        if lemma and lemma not in STOPWORDS and len(lemma) > 2:
+            tokens.append(lemma)
+
+    return tokens
+
+
+def clean_for_lexical_diversity(text: str) -> str:
+    """If you still want a cleaned string (e.g., for display/debug)."""
+    return " ".join(_tokenize_clean(text))
+
 
 def analyze_lexical_diversity(text: str) -> dict:
     """
-    Analyzes lexical diversity in children's storybooks using:
-    - TTR (Type-Token Ratio)
-    - MATTR (Moving Average Type-Token Ratio)
-    - MTLD (Measure of Textual Lexical Diversity)
-    - HDD (Hypergeometric Distribution Diversity)
+    Computes:
+    - TTR
+    - MATTR
+    - MTLD
+    - HD-D (Hypergeometric Distribution Diversity)
     """
-    words = word_tokenize(text)
+    if not text or not text.strip():
+        return {"ttr": None, "mattr": None, "mtld": None, "hdd": None}
 
-    if len(words) < 5:
-        return {"error": "Text too short for reliable analysis"}
+    tokens = _tokenize_clean(text)
+
+    # Too short => unreliable
+    if len(tokens) < 20:
+        return {
+            "ttr": _calculate_ttr(tokens) if tokens else None,
+            "mattr": None,
+            "mtld": None,
+            "hdd": None,
+            "warning": "Text too short for reliable lexical diversity (need ~20+ tokens after cleaning).",
+        }
 
     return {
-        "ttr": _calculate_ttr(words),
-        "mattr": _calculate_mattr(words),
-        "mtld": _calculate_mtld(words),
-        "hdd": _calculate_hdd(words),
+        "ttr": _calculate_ttr(tokens),
+        "mattr": _calculate_mattr(tokens, window_size=50),
+        "mtld": _calculate_mtld(tokens, threshold=0.72),
+        "hdd": _calculate_hdd(tokens, sample_size=42),
     }
 
-# === TTR: Type-Token Ratio ===
-def _calculate_ttr(words: list) -> float:
-    """Calculates the Type-Token Ratio."""
-    return round(len(set(words)) / len(words), 3)
 
-# === MATTR: Moving Average TTR ===
-def _calculate_mattr(words: list) -> float:
-    """Calculates MATTR with an adaptive window for children's books."""
-    window_size = min(50, len(words) // 2)
+def _calculate_ttr(tokens: list[str]) -> float:
+    return round(len(set(tokens)) / max(1, len(tokens)), 3)
 
-    if len(words) < window_size:
-        return _calculate_ttr(words)  # fallback to TTR
 
-    tt_ratios = [
-        len(set(words[i:i + window_size])) / window_size
-        for i in range(len(words) - window_size + 1)
-    ]
+def _calculate_mattr(tokens: list[str], window_size: int = 50) -> float:
+    # Standard MATTR uses a fixed window (often 50). If text shorter, just use TTR.
+    if len(tokens) <= window_size:
+        return _calculate_ttr(tokens)
 
-    return round(np.mean(tt_ratios), 3)
+    ttrs = []
+    for i in range(0, len(tokens) - window_size + 1):
+        window = tokens[i : i + window_size]
+        ttrs.append(len(set(window)) / window_size)
 
-# === MTLD: Measure of Textual Lexical Diversity ===
-def _calculate_mtld(words: list, threshold: float = 0.72) -> float:
+    return round(float(np.mean(ttrs)), 3)
+
+
+def _calculate_mtld(tokens: list[str], threshold: float = 0.72) -> float:
     """
-    Computes MTLD using McCarthy & Jarvis (2010) method.
+    MTLD per McCarthy & Jarvis (2010), using forward + reverse average.
     """
-    def count_factors(words, threshold):
+    def mtld_pass(seq: list[str]) -> float:
         factors = 0
-        word_count = 0
-        seen = set()
+        types = set()
+        token_count = 0
 
-        for word in words:
-            seen.add(word)
-            word_count += 1
-            ttr = len(seen) / word_count
+        for tok in seq:
+            token_count += 1
+            types.add(tok)
+            ttr = len(types) / token_count
 
-            if ttr < threshold:
+            if ttr <= threshold:
                 factors += 1
-                word_count = 0
-                seen = set()
+                types = set()
+                token_count = 0
 
-        return factors + (word_count / len(words)) if word_count > 0 else factors
+        # partial factor: how close we got to threshold at the end
+        if token_count > 0:
+            current_ttr = len(types) / token_count
+            # If current_ttr is still above threshold, partial factor < 1
+            if current_ttr != 1:
+                partial = (1 - current_ttr) / (1 - threshold)
+            else:
+                partial = 0.0
+            factors += partial
 
-    forward_mtld = count_factors(words, threshold)
-    backward_mtld = count_factors(words[::-1], threshold)
+        # avoid divide-by-zero
+        return len(seq) / max(factors, 1e-9)
 
-    return float(round((len(words) / (forward_mtld + backward_mtld)) * 2, 3))
+    forward = mtld_pass(tokens)
+    backward = mtld_pass(tokens[::-1])
+    return round(float((forward + backward) / 2), 3)
 
-# === HDD: Hypergeometric Distribution Diversity ===
-def _calculate_hdd(words: list, sample_size: int = 42) -> float:
-    word_counts = Counter(words)
-    total_types = len(word_counts)
-    total_tokens = len(words)
 
-    if total_types == 0:
+def _calculate_hdd(tokens: list[str], sample_size: int = 42) -> float:
+    """
+    HD-D (Hypergeometric Distribution Diversity).
+    For each type with frequency f, compute P(type appears at least once in a sample of size N),
+    then average across tokens per McCarthy & Jarvis style.
+    """
+    N = min(sample_size, len(tokens))
+    counts = Counter(tokens)
+    total_tokens = len(tokens)
+
+    if total_tokens == 0 or N <= 0:
         return 0.0
 
-    sum_prob = sum(
-        1 - np.prod([(count - i) / (total_tokens - i) for i in range(min(sample_size, total_tokens))])
-        for count in word_counts.values()
-    )
+    # Probability type appears at least once in sample:
+    # 1 - P(0 successes) where successes=f, population=total_tokens, draws=N
+    hdd_sum = 0.0
+    for f in counts.values():
+        # hypergeom(M=population, n=successes, N=draws).pmf(k)
+        p0 = hypergeom(M=total_tokens, n=f, N=N).pmf(0)
+        hdd_sum += (1.0 - p0)
 
-    return float(round(sum_prob / total_tokens, 3))
+    # Normalize to be in a comparable range (common: divide by N)
+    return round(float(hdd_sum / N), 3)
