@@ -1,11 +1,12 @@
 def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_last=1):
-    import os
     import logging
     import streamlit as st
+    import numpy as np
     from pdf2image import convert_from_bytes
-    from utils.config import POPPLER_PATH, get_ocr
-    ocr = get_ocr()
+    from utils.config import get_poppler_path, get_ocr
 
+    poppler_path = get_poppler_path()
+    ocr = get_ocr()
 
     uploaded_file.seek(0)
 
@@ -13,8 +14,8 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
         images = convert_from_bytes(
             uploaded_file.read(),
             dpi=200,
-            poppler_path=POPPLER_PATH,
-            fmt='jpeg'
+            poppler_path=poppler_path,
+            fmt="jpeg"
         )
     except Exception as e:
         logging.error(f"PDF conversion failed: {e}")
@@ -22,7 +23,6 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
 
     total_pages = len(images)
 
-    # 🧼 No auto-slicing — user controls everything from app.py
     if custom_pages:
         start = max(start_page - 1, 0)
         end = total_pages - skip_last if skip_last < total_pages else total_pages
@@ -34,10 +34,9 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
 
     for i, image in enumerate(images, 1):
         try:
-            temp_path = f"temp_page_{i}.jpg"
-            image.save(temp_path, "JPEG")
+            img = np.array(image)
+            result = ocr.ocr(img, cls=True)
 
-            result = ocr.ocr(temp_path, cls=True)
             if result:
                 for res in result:
                     for line in res:
@@ -45,16 +44,13 @@ def extract_text_from_pdf(uploaded_file, custom_pages=False, start_page=4, skip_
                             text = line[1][0]
                             if isinstance(text, str):
                                 extracted_text.append(text)
+
         except Exception as e:
             logging.error(f"OCR failed on page {i}: {e}")
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
 
         percent = int((i / len(images)) * 100)
         progress.progress(percent)
         status.text(f"🧠 OCR in progress: Page {i}/{len(images)} ({percent}%)")
 
     status.text("✅ OCR complete!")
-
     return " ".join(extracted_text) if extracted_text else "[NO TEXT FOUND]"
