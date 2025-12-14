@@ -57,7 +57,7 @@ narwhals==1.32.0
 networkx==3.3
 nltk==3.9.1
 numpy==1.26.4
-opencv-python-headless==4.11.0.80
+opencv-python-headless>=4.11.0.80
 opt-einsum==3.3.0
 packaging==24.2
 paddleocr==2.10.0 --no-deps
