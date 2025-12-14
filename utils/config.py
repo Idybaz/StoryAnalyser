@@ -1,4 +1,3 @@
-import os
 import platform
 from paddleocr import PaddleOCR
 
