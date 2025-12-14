@@ -7,6 +7,9 @@ paddleocr==2.10.0
 paddlepaddle==3.0.0
 opencv-python-headless>=4.9.0.80
 
+# Core
+numpy==1.26.4
+
 # Core NLP
 nltk==3.9.1
 contractions==0.1.73
